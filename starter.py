@@ -341,6 +341,8 @@ def train_model(model, opt):
     #  7. generate a test perplexity once per training epoch by calling test_model()
     #  8. save model weights to file specified in opt.savename
     #  SEE trainer.py for examples of each of the above
+
+    
     
 def test_model(model, opt, epoch):
     print("testing model...")
