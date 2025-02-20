@@ -326,29 +326,99 @@ def get_model(opt, src_vocab, trg_vocab):
     return model
     
 def train_model(model, opt):
-    
-    print("training model...")
+    print("Training model...")
     model.train()
     
-    # write code to:
-    #  1. create a nopeak mask
-    #  2. feed training data to the model in batches
-    #  3. send the indices of training tokens to the GPU
-    #  4. linearize the predictions and compute the loss against ground truth
-    #     (you can use F.cross_entropy or write your own code)
-    #  5. calculate and apply the gradients with loss.backward() and optimizer.step()
-    #  6. report intermediate trainining perplexity
-    #  7. generate a test perplexity once per training epoch by calling test_model()
-    #  8. save model weights to file specified in opt.savename
-    #  SEE trainer.py for examples of each of the above
+    # Define loss function
+    criterion = nn.CrossEntropyLoss(ignore_index=opt.trg_pad)
+    
+    # Define training data loader
+    train_data = opt.train
+    batch_size = opt.batchsize
+    
+    for epoch in range(opt.epochs):
+        total_loss = 0
+        
+        # Shuffle training data
+        random.shuffle(train_data)
+        
+        for batch_idx in range(0, len(train_data), batch_size):
+            batch = train_data[batch_idx: batch_idx + batch_size]
+            
+            # Convert batch into tensors
+            src, trg = zip(*batch)  # Assuming paired input-output
+            src = torch.tensor(src, dtype=torch.long, device=opt.device)
+            trg = torch.tensor(trg, dtype=torch.long, device=opt.device)
+            
+            # Create masks
+            src_mask = (src != opt.src_pad).unsqueeze(-2)
+            trg_mask = (trg != opt.trg_pad).unsqueeze(-2)
+            
+            # Forward pass
+            output = model(src, trg[:, :-1], src_mask, trg_mask[:, :-1])
+            
+            # Compute loss
+            output_dim = output.shape[-1]
+            output = output.contiguous().view(-1, output_dim)
+            trg = trg[:, 1:].contiguous().view(-1)
+            loss = criterion(output, trg)
+            
+            # Backpropagation
+            opt.optimizer.zero_grad()
+            loss.backward()
+            opt.optimizer.step()
+            
+            if opt.SGDR:
+                opt.sched.step()
+            
+            total_loss += loss.item()
+            
+            if (batch_idx // batch_size) % opt.printevery == 0:
+                print(f"Epoch {epoch + 1}, Batch {batch_idx // batch_size}: Loss = {loss.item():.4f}")
+                
+        avg_loss = total_loss / (len(train_data) // batch_size)
+        print(f"Epoch {epoch + 1} completed. Average Loss: {avg_loss:.4f}")
+        
+        # Evaluate model on test set at end of epoch
+        test_model(model, opt, epoch)
+        
+        # Save model checkpoint
+        if opt.savename:
+            model_path = f"{opt.savename}/model_epoch_{epoch + 1}.pt"
+            torch.save(model.state_dict(), model_path)
+            print(f"Model saved to {model_path}")
     
 def test_model(model, opt, epoch):
-    print("testing model...")
+    print("Testing model...")
     model.eval()
     
-    # write code to generate perplexity of test set
+    criterion = nn.CrossEntropyLoss(ignore_index=opt.trg_pad)
+    test_data = opt.test
+    batch_size = opt.batchsize
+    total_loss = 0
     
+    with torch.no_grad():
+        for batch_idx in range(0, len(test_data), batch_size):
+            batch = test_data[batch_idx: batch_idx + batch_size]
+            src, trg = zip(*batch)
+            src = torch.tensor(src, dtype=torch.long, device=opt.device)
+            trg = torch.tensor(trg, dtype=torch.long, device=opt.device)
+            
+            src_mask = (src != opt.src_pad).unsqueeze(-2)
+            trg_mask = (trg != opt.trg_pad).unsqueeze(-2)
+            
+            output = model(src, trg[:, :-1], src_mask, trg_mask[:, :-1])
+            output_dim = output.shape[-1]
+            output = output.contiguous().view(-1, output_dim)
+            trg = trg[:, 1:].contiguous().view(-1)
+            loss = criterion(output, trg)
+            
+            total_loss += loss.item()
+    
+    avg_loss = total_loss / (len(test_data) // batch_size)
+    print(f"Epoch {epoch + 1} Test Loss: {avg_loss:.4f}")
     model.train()
+
 
 def main():
     
